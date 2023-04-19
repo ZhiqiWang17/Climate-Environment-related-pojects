@@ -1,0 +1,105 @@
+## Bash-codes - Linux
+
+module list 
+mkdir cases git clone -b release-cesm2.1.3 https://github.com/ESCOMP/cesm.git cesm 
+cd cesm 
+./manage_externals/checkout_externals 
+update-cesm-machines cime/config/cesm/machines /data/brussel/vo/000/bvo00012/cesm/config_files/machines 
+
+scripts 
+./create_newcase --case ~/cases/control --res f19_g17 --compset I2000Clm50BgcCrop --mach hydra 
+cases 
+cd control 
+ls
+
+./case.setup 
+./case.build 
+./xmlchange DOUT_S=FALSE 
+micro env_run.xml 
+###### Then we changed the following in the env_run.xml file (STOP_N=12, STOP_OPTION=nmonths) 
+###### in the namelist we also added snowveg_flag='ON'
+micro user_nl_clm ./case.submit work cd control/run
+
+#CDO (Climate Data Operators)
+#============================================================================== 
+# main script which postprocesses CLM output 
+#==============================================================================
+
+
+# First, deal with the first h0 file which has more variables (because select fails) to merge all files 
+# echo 'reducing the number of variables in ' "control.clm2.h0.0001-01.nc" 
+mv control.clm2.h0.0001-01.nc orig_control.clm2.h0.0001-01.nc 2>/dev/null # create backup 
+cdo shifttime,-1mon -replace control.clm2.h0.0001-02.nc orig_control.clm2.h0.0001-01.nc
+control.clm2.h0.0001-01.nc # create January file with the same vars as February 
+
+# merge the 12 files 
+# to be filled 
+
+cdo mergetime control.clm2.h0.0001-**.nc control.clm2.h0.0001.merged.nc 
+
+#the same was done for the personalised runs 
+bash postprocessing_CLM.sh 
+cdo selname,EFLX_LH_TOT control.clm2.h0.0001.merged.nc control.clm2.h0.latentheatflux.nc 
+cdo remapbil,control.clm2.h0.latentheatflux.nc gleam_V31A.all.et.2000_monthly.nc gleam_remapbil.nc 
+cdo selname,TG personalised.clm2.h0.0001.merged.nc personalised.clm2.h0.groundtemp.nc 
+# then a lot of times selname was done with different variables and new names for the outputfiles 
+
+
+## Python-codes 
+
+#load in packages 
+import xarray as xr 
+import cartopy.crs as ccrs 
+import matplotlib.pyplot as plt 
+import numpy as np 
+
+#open dataset 
+filename = 'control.clm2.h0.latentheatflux.nc' 
+filename2 = 'gleam_remapbil.nc' 
+# change to for example filename = 'control.clm2.h0.groundtemp.nc' ds = xr.open_dataset(filename, decode_times=False) 
+ds2 = xr.open_dataset(filename2,decode_times=False) 
+# look what's inside the dataset (click data variables) 
+
+# load the evapotranspiration variable and check its attributes 
+da = ds['EFLX_LH_TOT'] 
+db = ds2['e'] 
+#Change to for example da=ds[‘TG’] or NPP or FSR of FSA 
+
+# calculate mean over the time dimension 
+da_mean = da.mean('time')*0.03456 
+db_mean = db.mean('time') 
+#other variables might need other coefficients, or min or max can be used for other datasets 
+
+# define plotting parameters 
+# variable 
+da_toplot = da_mean-db_mean
+# for percentage change, divide this difference by one of the two 
+test=da_toplot.values[:,:] 
+# title 
+#change title and label according to variables 
+title = 'Difference in maximal daily evapotranspiration (modelled-observed)' 
+# define colormap (more info on colormaps: https://matplotlib.org/users/colormaps.html) 
+cmap = 'RdBu' 
+# define colorbar label (including unit!) 
+cbar_label = 'Difference in evapotranspiration (mm/day)' 
+# define the projection projection = ccrs.PlateCarree() 
+#calculate global average 
+test2=np.nanmean(test) 
+test2 
+# define figure, projection and axes object 
+fig = plt.figure(figsize=(15,6)) 
+proj=ccrs.PlateCarree() 
+
+ax = plt.subplot(111, projection=proj, frameon=False) 
+# do plotting based on data array to plot and add colorbar, adjust label sizes 
+im = da_toplot.plot(ax=ax, cmap=cmap, extend='both', add_colorbar=False, add_labels=False) 
+cb = plt.colorbar(im,fraction= 0.04, pad= 0.08, extend='both') 
+cb.set_label(label = cbar_label, size=15) 
+cb.ax.tick_params(labelsize=12) 
+# set the title and coastlines 
+ax.set_title(title, loc='right', fontsize=20) 
+ax.coastlines(color='dimgray', linewidth=0.5) 
+
+#save 
+fig.savefig('gleam.png', dpi=600) 
+#change name
